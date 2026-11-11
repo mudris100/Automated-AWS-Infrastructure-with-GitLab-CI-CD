@@ -1,6 +1,13 @@
-# Automated AWS Web Infrastructure with GitLab CI
+# Automated AWS Infrastructure with GitLab CI/CD
 
 This project demonstrates a professional-grade DevOps workflow for automating the provisioning and configuration of cloud-based infrastructure. It leverages **Terraform** for Infrastructure as Code (IaC), **Ansible** for configuration management, and **GitLab CI/CD** for a fully automated deployment pipeline targeting **AWS**.
+
+## Key Features
+
+- **Self-Hosted GitLab Runner**: The pipeline executes on a private, self-hosted runner (`home-runner`), providing full control over the build environment and security.
+- **GitLab-Managed Terraform State**: Utilizes GitLab's built-in Terraform state management, ensuring secure, versioned, and locked state files without requiring external S3/DynamoDB backends.
+- **Infrastructure as Code**: Complete automation of AWS resources using Terraform.
+- **Automated Configuration**: Post-provisioning setup handled by Ansible roles.
 
 ## Architecture Overview
 
@@ -35,6 +42,8 @@ The pipeline consists of three main stages:
 1.  **Plan**: Runs `terraform plan` to preview infrastructure changes.
 2.  **Apply**: Runs `terraform apply` to provision resources and exports the server IP.
 3.  **Config**: Uses Ansible to configure the provisioned server.
+
+Additionally, the pipeline includes a **manual destroy stage**, allowing the entire infrastructure to be decommissioned in seconds when no longer needed, ensuring cost-efficiency and environment cleanup.
 
 ### Required CI/CD Variables
 
