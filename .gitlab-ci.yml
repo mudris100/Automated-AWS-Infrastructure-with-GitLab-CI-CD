@@ -1,0 +1,72 @@
+workflow:
+  rules:
+    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"
+
+stages: [plan, apply, config]
+
+default:
+  tags: [home-runner]
+
+variables:
+  TF_ROOT: terraform
+
+.terraform:
+  variables:
+    TF_STATE_NAME: default
+    TF_HTTP_ADDRESS: ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}
+    TF_HTTP_LOCK_ADDRESS: ${TF_HTTP_ADDRESS}/lock
+    TF_HTTP_UNLOCK_ADDRESS: ${TF_HTTP_ADDRESS}/lock
+    TF_HTTP_LOCK_METHOD: POST
+    TF_HTTP_UNLOCK_METHOD: DELETE
+    TF_HTTP_USERNAME: gitlab-ci-token
+    TF_HTTP_PASSWORD: ${CI_JOB_TOKEN}
+    TF_HTTP_RETRY_WAIT_MIN: "5"
+  image: { name: hashicorp/terraform:1.7.5, entrypoint: [""] }
+  resource_group: terraform
+  cache:
+    key: tf-providers
+    paths: [terraform/.terraform/providers]
+  before_script:
+    - terraform -chdir=$TF_ROOT init -input=false
+
+terraform-plan:
+  extends: .terraform
+  stage: plan
+  script:
+    - terraform -chdir=$TF_ROOT plan -input=false -out=plan.tfplan
+  artifacts:
+    paths: [terraform/plan.tfplan]
+
+terraform-apply:
+  extends: .terraform
+  stage: apply
+  needs: [terraform-plan]
+  script:
+    - terraform -chdir=$TF_ROOT apply -input=false plan.tfplan
+    - terraform -chdir=$TF_ROOT output -raw ec2_public_ip > ec2_ip.txt
+  artifacts:
+    paths: [ec2_ip.txt]
+
+terraform-destroy:
+  extends: .terraform
+  stage: apply
+  script:
+    - terraform -chdir=$TF_ROOT destroy -auto-approve -input=false
+  when: manual
+
+configure:
+  image: registry.gitlab.com/mudris-dev/docker/base-images/ansible:1.0
+  # prebuilt: ansible + openssh
+  stage: config
+  needs: [terraform-apply]
+  before_script:
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+  script:
+    - export SERVER_IP=$(cat ec2_ip.txt)
+    - until nc -z "$SERVER_IP" 22; do sleep 5; done
+    - ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts
+    - ansible-playbook -i "$SERVER_IP," --private-key ~/.ssh/deploy
+      -e ansible_user=ubuntu
+      -e cloudflare_cert_file="$CLOUDFLARE_CERT"
+      -e cloudflare_key_file="$CLOUDFLARE_KEY" ansible/setup.yml
